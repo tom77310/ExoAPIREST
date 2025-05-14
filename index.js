@@ -57,6 +57,75 @@ app.get('/pokemons', async (req, res) => {
     res.json(tousLesPokemons);
 });
 
+// Avoir un pokemon par son id
+app.get('/pokemons/:id', async (req, res) => {
+    const id = req.params.id;
+    let mongoClient;
+    let unPokemon;
+    try {
+        mongoClient = await connectToMongoDB(process.env.DB_URI);
+        const mediaDb = mongoClient.db('media');
+        const pokemons = mediaDb.collection('pokemon');
+        unPokemon = await pokemons.findOne({ _id: new ObjectId(id) });
+    } finally {
+        mongoClient.close(); 
+    }
+
+    res.json(unPokemon);
+});
+
+// Avoir un pokemon par son type
+app.get('/pokemons/type/:type', async (req, res) => {
+    const type = req.params.type;
+    let mongoClient;
+    let unPokemon;
+    try {
+        mongoClient = await connectToMongoDB(process.env.DB_URI);
+        const mediaDb = mongoClient.db('media');
+        const pokemons = mediaDb.collection('pokemon');
+        unPokemon = await pokemons.find({ type: type }).toArray();
+    } finally {
+        mongoClient.close(); 
+    }
+
+    res.json(unPokemon);
+});
+
+// Filtrer les pokemons par un nombre minimum de type
+app.get('/pokemons/type/:type/min/:min', async (req, res) => {
+    const type = req.params.type;
+    const min = req.params.min;
+    let mongoClient;
+    let unPokemon;
+    try {
+        mongoClient = await connectToMongoDB(process.env.DB_URI);
+        const mediaDb = mongoClient.db('media');
+        const pokemons = mediaDb.collection('pokemon');
+        unPokemon = await pokemons.find({ type: type, numberOfType: { $gte: parseInt(min) } }).toArray();
+    } finally {
+        mongoClient.close(); 
+    }
+
+    res.json(unPokemon);
+});
+
+// Avoir un pokemon avec un nom en anglais un type
+app.get('/pokemons/type/:type/english/:name', async (req, res) => {
+    const type = req.params.type;
+    const name = req.params.name;
+    let mongoClient;
+    let unPokemon;
+    try {
+        mongoClient = await connectToMongoDB(process.env.DB_URI);
+        const mediaDb = mongoClient.db('media');
+        const pokemons = mediaDb.collection('pokemon');
+        unPokemon = await pokemons.find({ type: type, english: { $regex: name } }).toArray();
+    } finally {
+        mongoClient.close(); 
+    }
+
+    res.json(unPokemon);
+});
 
 
 // Port d'écoute
