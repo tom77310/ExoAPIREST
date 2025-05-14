@@ -169,10 +169,10 @@ app.get('/pokemons/filter', async (req, res) => {
 
 // Pokemon les plus lourd
 app.get('/pokemons/top-weight', async (req, res) => {
-  const limit = parseInt(req.query.limit) || 10; // par défaut 10 si rien précisé
+  const limit = parseInt(req.query.limit) || 10;
 
   if (isNaN(limit) || limit <= 0) {
-    return res.status(400).json({ error: "Le paramètre 'limit' doit être un nombre entier positif." });
+    return res.status(400).json({ error: "Le paramètre 'limit' doit être un entier positif." });
   }
 
   let mongoClient;
@@ -181,13 +181,14 @@ app.get('/pokemons/top-weight', async (req, res) => {
     const mediaDb = mongoClient.db('media');
     const pokemons = mediaDb.collection('pokemon');
 
-    const topHeavyPokemons = await pokemons
-      .find({ weight: { $exists: true, $ne: null } })
-      .sort({ weight: -1 }) // tri par poids décroissant
-      .limit(limit)
-      .toArray();
+    const pipeline = [
+      { $match: { "profile.weight": { $exists: true, $ne: null } } },
+      { $sort: { "profile.weight" : -1 } },
+      { $limit: limit }
+    ];
 
-    res.json(topHeavyPokemons);
+    const result = await pokemons.aggregate(pipeline).toArray();
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
@@ -195,6 +196,70 @@ app.get('/pokemons/top-weight', async (req, res) => {
   }
 });
 
+// Pokemon les plus grands
+app.get('/pokemons/top-height', async (req, res) => {
+  const limit = parseInt(req.query.limit) || 4;
+
+  if (isNaN(limit) || limit <= 0) {
+    return res.status(400).json({ error: "Le paramètre 'limit' doit être un entier positif." });
+  }
+
+  let mongoClient;
+  try {
+    mongoClient = await connectToMongoDB(process.env.DB_URI);
+    const mediaDb = mongoClient.db('media');
+    const pokemons = mediaDb.collection('pokemon');
+
+    const pipeline = [
+      { $match: { "profile.height": { $exists: true, $ne: null } } },
+      { $sort: { "profile.height" : -1 } },
+      { $limit: limit }
+    ];
+
+    const result = await pokemons.aggregate(pipeline).toArray();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (mongoClient) mongoClient.close();
+  }
+});
+
+// Pokemon sans évolution
+app.get('/pokemons/without-evolution', async (req, res) => {
+  const typesQuery = req.query.types;
+
+  if (!typesQuery) {
+    return res.status(400).json({ error: "Le paramètre 'types' est requis (ex: ?types=Ground,Rock)." });
+  }
+
+  const typesArray = typesQuery.split(',').map(type => type.trim());
+
+  let mongoClient;
+  try {
+    mongoClient = await connectToMongoDB(process.env.DB_URI);
+    const mediaDb = mongoClient.db('media');
+    const pokemons = mediaDb.collection('pokemon');
+
+    const result = await pokemons.aggregate([
+      {
+        $match: {
+          type: { $in: typesArray },
+          $or: [
+            { "evolution.next": { $exists: false } },
+            { "evolution.next": { $size: 0 } }
+          ]
+        }
+      }
+    ]).toArray();
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (mongoClient) mongoClient.close();
+  }
+});
 
 
 
