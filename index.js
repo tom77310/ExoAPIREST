@@ -58,24 +58,36 @@ app.get('/pokemons', async (req, res) => {
 });
 
 // Avoir un pokemon par son id
-// app.get('/pokemons/:id', async (req, res) => {
-//     const id = req.params.id;
-//     let mongoClient;
-//     let unPokemon;
-//     try {
-//         mongoClient = await connectToMongoDB(process.env.DB_URI);
-//         const mediaDb = mongoClient.db('media');
-//         const pokemons = mediaDb.collection('pokemon');
-//         unPokemon = await pokemons.findOne({ _id: new ObjectId(id) }); // entre en conflit avec la route pour recuperer un pokemon par son nom et son type
-//     } finally {
-//         mongoClient.close(); 
-//     }
+app.get('/pokemons/:id', async (req, res) => {
+  const { id } = req.params;
 
-//     res.json(unPokemon);
-// });
+  // Vérifie que l'ID est un ObjectId valide
+  if (!ObjectId.isValid(id)) {
+    return res.status(400).json({ error: "ID invalide" });
+  }
+
+  let mongoClient;
+  try {
+    mongoClient = await connectToMongoDB(process.env.DB_URI);
+    const mediaDb = mongoClient.db('media');
+    const pokemons = mediaDb.collection('pokemon');
+
+    const pokemon = await pokemons.findOne({ _id: new ObjectId(id) });
+
+    if (!pokemon) {
+      return res.status(404).json({ error: "Aucun Pokémon trouvé avec cet ID" });
+    }
+
+    res.json(pokemon);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (mongoClient) mongoClient.close();
+  }
+});
 
 // Avoir un pokemon par son type
-app.get('/pokemons/type/:type', async (req, res) => {
+app.get('/type/:type', async (req, res) => {
     const type = req.params.type;
     let mongoClient;
     let unPokemon;
@@ -92,7 +104,7 @@ app.get('/pokemons/type/:type', async (req, res) => {
 });
 
 // Filtrer les pokemons par un nombre minimum de type
-app.get('/pokemons/with-min-types/:min', async (req, res) => {
+app.get('/with-min-types/:min', async (req, res) => {
   const min = parseInt(req.params.min);
 
   if (isNaN(min)) {
@@ -120,7 +132,7 @@ app.get('/pokemons/with-min-types/:min', async (req, res) => {
 
 
 // Filtrer les pokemons par nom en anglais et type avec agrégation
-app.get('/pokemons/filter', async (req, res) => {
+app.get('/filter', async (req, res) => {
   const name = req.query.name; // Récupère le nom en anglais
   const type = req.query.type; // Récupère le type
 
@@ -168,7 +180,7 @@ app.get('/pokemons/filter', async (req, res) => {
 });
 
 // Pokemon les plus lourd
-app.get('/pokemons/top-weight', async (req, res) => {
+app.get('/top-weight', async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
 
   if (isNaN(limit) || limit <= 0) {
@@ -197,7 +209,7 @@ app.get('/pokemons/top-weight', async (req, res) => {
 });
 
 // Pokemon les plus grands
-app.get('/pokemons/top-height', async (req, res) => {
+app.get('/top-height', async (req, res) => {
   const limit = parseInt(req.query.limit) || 4;
 
   if (isNaN(limit) || limit <= 0) {
@@ -226,7 +238,7 @@ app.get('/pokemons/top-height', async (req, res) => {
 });
 
 // Pokemon sans évolution
-app.get('/pokemons/without-evolution', async (req, res) => {
+app.get('/without-evolution', async (req, res) => {
   const typesQuery = req.query.types;
 
   if (!typesQuery) {
@@ -261,7 +273,120 @@ app.get('/pokemons/without-evolution', async (req, res) => {
   }
 });
 
+// Les noms francais les plus longs
+app.get('/top-french-name-length', async (req, res) => {
+  const limit = parseInt(req.query.limit) || 5;
 
+  if (isNaN(limit) || limit <= 0) {
+    return res.status(400).json({ error: "Le paramètre 'limit' doit être un nombre positif." });
+  }
+
+  let mongoClient;
+  try {
+    mongoClient = await connectToMongoDB(process.env.DB_URI);
+    const mediaDb = mongoClient.db('media');
+    const pokemons = mediaDb.collection('pokemon');
+
+    const result = await pokemons.aggregate([
+      {
+        $addFields: {
+          nameLength: { $strLenCP: "$name.french" }
+        }
+      },
+      {
+        $sort: { nameLength: -1 }
+      },
+      {
+        $limit: limit
+      },
+      {
+        $project: {
+          _id: 0,
+          name: "$name.french",
+          nameLength: 1
+        }
+      }
+    ]).toArray();
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (mongoClient) mongoClient.close();
+  }
+});
+
+// Avoir la moyenne des points de vie de tous les pokemons
+app.get('/stats/hp/average', async (req, res) => {
+  let mongoClient;
+  try {
+    mongoClient = await connectToMongoDB(process.env.DB_URI);
+    const mediaDb = mongoClient.db('media');
+    const pokemons = mediaDb.collection('pokemon');
+
+    const result = await pokemons.aggregate([
+      {
+        $group: {
+          _id: null,
+          averageHp: { $avg: "$base.HP" }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          averageHp: { $round: ["$averageHp", 2] } // arrondi à 2 décimales
+        }
+      }
+    ]).toArray();
+
+    res.json(result[0]); // on renvoie l'objet directement
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (mongoClient) mongoClient.close();
+  }
+});
+
+// Avoir le type de pokemon le plus fréquent
+app.get('/stats/types/top', async (req, res) => {
+  const limit = parseInt(req.query.limit) || 10;
+
+  if (isNaN(limit) || limit < 1) {
+    return res.status(400).json({ error: "Le paramètre 'limit' doit être un entier supérieur à 0." });
+  }
+
+  let mongoClient;
+  try {
+    mongoClient = await connectToMongoDB(process.env.DB_URI);
+    const mediaDb = mongoClient.db('media');
+    const pokemons = mediaDb.collection('pokemon');
+
+    const result = await pokemons.aggregate([
+      { $unwind: "$type" },
+      {
+        $group: {
+          _id: "$type",
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: limit },
+      {
+        $project: {
+          _id: 0,
+          type: "$_id",
+          count: 1
+        }
+      }
+    ]).toArray();
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (mongoClient) mongoClient.close();
+  }
+});
 
 
 // Port d'écoute
